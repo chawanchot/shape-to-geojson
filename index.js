@@ -30,11 +30,10 @@ function parsePrjFile(prjBuffer) {
         return WGS84;
     }
 
-    // ถ้าไม่รู้จัก ลองใช้ .prj text โดยตรง
     return prjText;
 }
 
-// ฟังก์ชันแปลงพิกัดของ geometry
+// ฟังก์ชันแปลงพิกัดของ geometry เป็น WGS84
 function transformGeometry(geometry, sourceCRS) {
     if (!sourceCRS || sourceCRS === WGS84 || sourceCRS === "EPSG:4326") {
         return geometry; // ไม่ต้องแปลง
@@ -44,11 +43,9 @@ function transformGeometry(geometry, sourceCRS) {
 
     function transformCoords(coords, depth = 0) {
         if (depth === 0) {
-            // Single coordinate [x, y]
             const [x, y] = transform.forward(coords);
             return [x, y];
         } else {
-            // Nested array
             return coords.map((c) => transformCoords(c, depth - 1));
         }
     }
@@ -137,8 +134,6 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
 
                 const features = [];
                 let result;
-                let originalSize = 0;
-                let simplifiedSize = 0;
 
                 while (!(result = await source.read()).done) {
                     const feature = result.value;
@@ -149,9 +144,6 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                             feature.geometry,
                             sourceCRS || UTM_ZONE_47N,
                         );
-
-                        // นับจำนวนพิกัดก่อน simplify
-                        originalSize += JSON.stringify(feature.geometry).length;
 
                         // Simplify geometry เพื่อลดขนาดไฟล์
                         if (
@@ -167,11 +159,6 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                             });
                             feature.geometry = simplified.geometry;
                         }
-
-                        // นับจำนวนพิกัดหลัง simplify
-                        simplifiedSize += JSON.stringify(
-                            feature.geometry,
-                        ).length;
                     }
 
                     features.push(feature);
