@@ -5,9 +5,8 @@ import path from "path";
 import proj4 from "proj4";
 import simplify from "@turf/simplify";
 
-// การตั้งค่า simplification
-const SIMPLIFY_TOLERANCE = 0.001; // ค่ายิ่งมาก ลดรายละเอียดยิ่งมาก (0.0001 = ละเอียดมาก, 0.001 = ปานกลาง, 0.01 = น้อย)
-const ENABLE_SIMPLIFY = true; // เปิด/ปิด simplification
+const SIMPLIFY_TOLERANCE = 0.001;
+const ENABLE_SIMPLIFY = true;
 
 // กำหนดระบบพิกัดสำหรับประเทศไทย
 const UTM_ZONE_47N = "+proj=utm +zone=47 +datum=WGS84 +units=m +no_defs";
@@ -80,19 +79,13 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
     try {
         let rarData;
 
-        // ตรวจสอบว่าเป็น URL หรือ local file path
-        if (rarPath.startsWith("http://") || rarPath.startsWith("https://")) {
-            console.log(`downloading: ${rarPath}`);
-            const response = await fetch(rarPath);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const arrayBuffer = await response.arrayBuffer();
-            rarData = Buffer.from(arrayBuffer);
-        } else {
-            // อ่านไฟล์ RAR จาก local
-            rarData = await readFile(rarPath);
+        console.log(`downloading: ${rarPath}`);
+        const response = await fetch(rarPath);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const arrayBuffer = await response.arrayBuffer();
+        rarData = Buffer.from(arrayBuffer);
 
         // แตกไฟล์ RAR
         const extractor = await createExtractorFromData({ data: rarData });
@@ -133,14 +126,9 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                 // อ่าน projection จากไฟล์ .prj
                 const sourceCRS = parsePrjFile(fileSet[".prj"]);
                 if (sourceCRS) {
-                    console.log(`  - แปลงเป็น: WGS84 (EPSG:4326)`);
-                } else {
-                    console.log(
-                        `  - ไม่พบไฟล์ .prj, สันนิษฐานว่าเป็น UTM Zone 47N`,
-                    );
+                    console.log(` - แปลงเป็น: WGS84 (EPSG:4326)`);
                 }
 
-                // ใช้ shapefile library ที่รองรับ encoding
                 const source = await shapefile.open(
                     fileSet[".shp"],
                     fileSet[".dbf"],
@@ -151,7 +139,7 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                 let result;
                 let originalSize = 0;
                 let simplifiedSize = 0;
-                
+
                 while (!(result = await source.read()).done) {
                     const feature = result.value;
 
@@ -161,25 +149,29 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                             feature.geometry,
                             sourceCRS || UTM_ZONE_47N,
                         );
-                        
+
                         // นับจำนวนพิกัดก่อน simplify
                         originalSize += JSON.stringify(feature.geometry).length;
-                        
+
                         // Simplify geometry เพื่อลดขนาดไฟล์
-                        if (ENABLE_SIMPLIFY && (feature.geometry.type === 'Polygon' || 
-                            feature.geometry.type === 'MultiPolygon' || 
-                            feature.geometry.type === 'LineString' || 
-                            feature.geometry.type === 'MultiLineString')) {
-                            
+                        if (
+                            ENABLE_SIMPLIFY &&
+                            (feature.geometry.type === "Polygon" ||
+                                feature.geometry.type === "MultiPolygon" ||
+                                feature.geometry.type === "LineString" ||
+                                feature.geometry.type === "MultiLineString")
+                        ) {
                             const simplified = simplify(feature, {
                                 tolerance: SIMPLIFY_TOLERANCE,
-                                highQuality: true
+                                highQuality: true,
                             });
                             feature.geometry = simplified.geometry;
                         }
-                        
+
                         // นับจำนวนพิกัดหลัง simplify
-                        simplifiedSize += JSON.stringify(feature.geometry).length;
+                        simplifiedSize += JSON.stringify(
+                            feature.geometry,
+                        ).length;
                     }
 
                     features.push(feature);
@@ -191,13 +183,7 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
                 };
 
                 results.push({ name, geojson });
-                
-                // แสดงสถิติการลดขนาด
-                const reductionPercent = ((1 - simplifiedSize / originalSize) * 100).toFixed(2);
-                console.log(`  - แปลงสำเร็จ: ${features.length} features`);
-                if (ENABLE_SIMPLIFY) {
-                    console.log(`  - ลดขนาด geometry: ${reductionPercent}% (จาก ${(originalSize/1024).toFixed(2)} KB เป็น ${(simplifiedSize/1024).toFixed(2)} KB)`);
-                }
+                console.log(` - แปลงสำเร็จ: ${features.length} features`);
             }
         }
 
@@ -215,72 +201,126 @@ async function extractRarAndConvert(rarPath, outputJsonPath) {
             }
             await writeFile(outputJsonPath, JSON.stringify(combined, null, 2));
         }
-
-        console.log(`success! file path: ${outputJsonPath}`);
     } catch (error) {
         console.error("เกิดข้อผิดพลาด:", error);
         throw error; // ส่งต่อ error เพื่อให้ batch process จัดการได้
     }
 }
 
-// ฟังก์ชันสำหรับ batch processing
-async function batchConvert(sources) {
-    console.log(`start convert ${sources.length} files\n`);
+const soilgroup = {
+    // "N/sg_kpt": "kamphaengphet",
+    // "N/sg_cmi": "chiangmai",
+    // "N/sg_cri": "chiangrai",
+    // "N/sg_tak": "tak",
+    // "N/sg_nan": "nan",
+    // "N/sg_nsn": "nakhonsawan",
+    // "N/sg_pyo": "phayao",
+    // "N/sg_pct": "phichit",
+    // "N/sg_plk": "phitsanulok",
+    // "N/sg_pbn": "phetchabun",
+    // "N/sg_msn": "maehongson",
+    // "N/sg_pre": "phrae",
+    // "N/sg_lpg": "lampang",
+    // "N/sg_lpn": "lamphun",
+    // "N/sg_sti": "sukhothai",
+    // "N/sg_utt": "uttaradit",
+    // "N/sg_uti": "uthaithani",
+    // "NE/sg_ksn": "kalasin",
+    // "NE/sg_mkm": "mahasarakham",
+    // "NE/sg_srn": "surin",
+    // "NE/sg_kkn": "khonkaen",
+    // "NE/sg_mdh": "mukdahan",
+    // "NE/sg_nki": "nongkhai",
+    // "NE/sg_cpm": "chaiyaphum",
+    // "NE/sg_yst": "yasothon",
+    // "NE/sg_nbl": "nongbualamphu",
+    // "NE/sg_npn": "nakhonphanom",
+    // "NE/sg_ret": "roiet",
+    // "NE/sg_anc": "amnatcharoen",
+    // "NE/sg_nma": "nakhonratchasima",
+    // "NE/sg_lei": "loei",
+    // "NE/sg_udn": "udonthani",
+    // "NE/sg_bkn": "buengkan",
+    // "NE/sg_ssk": "sisaket",
+    // "NE/sg_ubn": "ubonratchathani",
+    // "NE/sg_brm": "buriram",
+    // "NE/sg_snk": "sakonnakhon",
+    // "C/sg_kri": "kanchanaburi",
+    // "C/sg_aya": "phranakhonsiayutthaya",
+    // "C/sg_sri": "saraburi",
+    // "C/sg_bkk": "bangkok",
+    // "C/sg_rbr": "ratchaburi",
+    // "C/sg_sbr": "singburi",
+    // "C/sg_cnt": "chainat",
+    // "C/sg_lri": "lopburi",
+    // "C/sg_spb": "suphanburi",
+    // "C/sg_nyk": "nakhonnayok",
+    // "C/sg_smp": "samutprakan",
+    // "C/sg_atg": "angthong",
+    // "C/sg_npt": "nakhonpathom",
+    // "C/sg_skm": "samutsongkhram",
+    // "C/sg_pkn": "prachuapkhirikhan",
+    // "C/sg_ntb": "nonthaburi",
+    // "C/sg_skn": "samutsakhon",
+    // "C/sg_pbi": "phetchaburi",
+    // "C/sg_ptm": "pathumthani",
+    // "E/sg_cti": "chanthaburi",
+    // "E/sg_trt": "trat",
+    // "E/sg_sko": "sakaeo",
+    // "E/sg_cco": "chachoengsao",
+    // "E/sg_pri": "prachinburi",
+    // "E/sg_ryg": "rayong",
+    // "E/sg_cbi": "chonburi",
+    // "S/sg_cpn": "chumphon",
+    // "S/sg_yla": "yala",
+    // "S/sg_trg": "trang",
+    // "S/sg_nrt": "nakhonsithammarat",
+    // "S/sg_rng": "ranong",
+    // "S/sg_plg": "phatthalung",
+    // "S/sg_nwt": "narathiwat",
+    // "S/sg_pkt": "phuket",
+    // "S/sg_ptn": "pattani",
+    // "S/sg_sni": "suratthani",
+    // "S/sg_ska": "songkhla",
+    // "S/sg_pna": "phangnga",
+    // "S/sg_kbi": "krabi",
+    "S/sg_stn": "satun",
+};
 
-    const results = [];
-    for (let i = 0; i < sources.length; i++) {
-        const { url, outputPath } = sources[i];
-        console.log(`[${i + 1}/${sources.length}]`);
+const sources = Object.entries(soilgroup).map(([code, provinceSlug]) => {
+    return {
+        url: `https://tswc.ldd.go.th/DownloadGIS/web_Soilgroup/DataSoilgroup/${code}.rar`,
 
-        try {
-            await extractRarAndConvert(url, outputPath);
-            results.push({ url, outputPath, status: "success" });
-            console.log(`✓ success\n`);
-        } catch (error) {
-            results.push({
-                url,
-                outputPath,
-                status: "failed",
-                error: error.message,
-            });
-            console.error(`✗ failed: ${error.message}\n`);
-        }
-    }
-
-    // สรุปผลลัพธ์
-    console.log("\n=== summary ===");
-    console.log(
-        `success: ${results.filter((r) => r.status === "success").length}`,
-    );
-    console.log(
-        `failed: ${results.filter((r) => r.status === "failed").length}`,
-    );
-
-    return results;
-}
-
-// ตัวอย่างการใช้งาน - แบบ local file
-// extractRarAndConvert("./sg_pkt.rar", "soilgroup_pkt.json");
-
-// แบบ batch processing หลายไฟล์
-const sources = [
-    {
-        url: "https://tswc.ldd.go.th/DownloadGIS/web_Soilgroup/DataSoilgroup/E/sg_pri.rar",
-        outputPath: "output/soilgroup_pri.json",
-    },
-    {
-        url: "https://tswc.ldd.go.th/DownloadGIS/web_Soilgroup/DataSoilgroup/C/sg_sbr.rar",
-        outputPath: "output/soilgroup_sbr.json",
-    },
-    {
-        url: "https://tswc.ldd.go.th/DownloadGIS/web_Soilgroup/DataSoilgroup/S/sg_plg.rar",
-        outputPath: "output/soilgroup_plg.json",
-    },
-    {
-        url: "https://tswc.ldd.go.th/DownloadGIS/web_Soilgroup/DataSoilgroup/N/sg_nan.rar",
-        outputPath: "output/soilgroup_nan.json",
-    },
-];
+        // ใช้ value เป็นชื่อไฟล์ output
+        outputPath: `output/${provinceSlug}.json`,
+    };
+});
 
 await mkdir("./output", { recursive: true });
-batchConvert(sources);
+
+console.log(`start convert ${sources.length} files\n`);
+
+const results = [];
+
+for (let i = 0; i < sources.length; i++) {
+    const { url, outputPath } = sources[i];
+    console.log(`[${i + 1}/${sources.length}]`);
+
+    try {
+        await extractRarAndConvert(url, outputPath);
+        results.push({ url, outputPath, status: "success" });
+        console.log(`success\n`);
+    } catch (error) {
+        results.push({
+            url,
+            outputPath,
+            status: "failed",
+            error: error.message,
+        });
+        console.error(`failed: ${error.message}\n`);
+    }
+}
+
+console.log("\n=== summary ===");
+console.log(`success: ${results.filter((r) => r.status === "success").length}`);
+console.log(`failed: ${results.filter((r) => r.status === "failed").length}`);
